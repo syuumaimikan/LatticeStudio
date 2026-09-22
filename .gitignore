@@ -1,0 +1,9 @@
+/target
+/.idea
+/.vscode
+*.log
+*.tmp
+.DS_Store
+cache/
+proxy/
+render-cache/

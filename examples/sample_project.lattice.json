@@ -1,0 +1,21 @@
+{
+  "format_version": 1,
+  "name": "日本語4Kサンプル",
+  "language": "ja-JP",
+  "frame_rate": {
+    "numerator": 60,
+    "denominator": 1
+  },
+  "width": 3840,
+  "height": 2160,
+  "tracks": [
+    {
+      "name": "V1",
+      "kind": "Video",
+      "muted": false,
+      "locked": false,
+      "clips": []
+    }
+  ],
+  "assets": []
+}

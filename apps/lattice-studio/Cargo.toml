@@ -1,0 +1,15 @@
+[package]
+name = "lattice-studio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lattice-core = { path = "../../crates/lattice-core" }
+lattice-media = { path = "../../crates/lattice-media" }
+lattice-render = { path = "../../crates/lattice-render" }
+lattice-scene3d = { path = "../../crates/lattice-scene3d" }
+lattice-plugin-api = { path = "../../crates/lattice-plugin-api" }
+lattice-plugin-host = { path = "../../crates/lattice-plugin-host" }
+lattice-i18n = { path = "../../crates/lattice-i18n" }
+serde_json.workspace = true

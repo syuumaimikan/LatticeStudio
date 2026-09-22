@@ -1,0 +1,9 @@
+{
+  "id": "com.lattice.sample.fade",
+  "name": "サンプル・フェード",
+  "vendor": "Lattice SDK",
+  "version": "1.0.0",
+  "abi_version": 1,
+  "kind": "VideoEffect",
+  "sandbox": "Required"
+}

@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/lattice-studio",
+  "crates/lattice-core",
+  "crates/lattice-media",
+  "crates/lattice-render",
+  "crates/lattice-scene3d",
+  "crates/lattice-plugin-api",
+  "crates/lattice-plugin-host",
+  "crates/lattice-i18n",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+glam = { version = "0.30", features = ["serde"] }
+tracing = "0.1"
+parking_lot = "0.12"
+smallvec = "1"
