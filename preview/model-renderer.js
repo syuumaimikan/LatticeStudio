@@ -17,35 +17,71 @@ class ModelRenderer {
         this.camera = new THREE.PerspectiveCamera(50, 16/9, 10, 100000);
         
         this.models = new Map();
+        
         this.loaders = {
             gltf: typeof THREE.GLTFLoader !== 'undefined' ? new THREE.GLTFLoader() : null,
-            obj: typeof THREE.OBJLoader !== 'undefined' ? new THREE.OBJLoader() : null
+            obj: typeof THREE.OBJLoader !== 'undefined' ? new THREE.OBJLoader() : null,
+            mmd: typeof THREE.MMDLoader !== 'undefined' ? new THREE.MMDLoader() : null
         };
+        this.mmdHelper = typeof THREE.MMDAnimationHelper !== 'undefined' ? new THREE.MMDAnimationHelper() : null;
     }
 
-    async loadModel(url) {
-        if (this.models.has(url)) return this.models.get(url);
+    async loadModel(url, vmdUrl = null) {
+        const key = url + (vmdUrl ? '|' + vmdUrl : '');
+        if (this.models.has(key)) return this.models.get(key);
         
         const isGLTF = url.toLowerCase().endsWith('.glb') || url.toLowerCase().endsWith('.gltf');
-        const loader = isGLTF ? this.loaders.gltf : this.loaders.obj;
-        if (!loader) throw new Error('Model loader not available');
+        const isMMD = url.toLowerCase().endsWith('.pmx') || url.toLowerCase().endsWith('.pmd');
+        const loader = isGLTF ? this.loaders.gltf : isMMD ? this.loaders.mmd : this.loaders.obj;
+        if (!loader) throw new Error('Model loader not available for ' + url);
         
         return new Promise((resolve, reject) => {
-            loader.load(url, (gltf) => {
-                const model = isGLTF ? gltf.scene : gltf;
-                this.models.set(url, model);
-                resolve(model);
-            }, undefined, reject);
+            if (isMMD && vmdUrl) {
+                loader.loadWithAnimation(url, vmdUrl, (mmd) => {
+                    const model = mmd.mesh;
+                    let mixer = null;
+                    if (this.mmdHelper) {
+                        this.mmdHelper.add(model, { animation: mmd.animation, physics: false });
+                    }
+                    this.models.set(key, { model, isMMD: true });
+                    resolve({ model, isMMD: true });
+                }, undefined, reject);
+            } else {
+                loader.load(url, (result) => {
+                    const model = isGLTF ? result.scene : isMMD ? result : result;
+                    let mixer = null;
+                    if (isGLTF && result.animations && result.animations.length) {
+                        mixer = new THREE.AnimationMixer(model);
+                        mixer.clipAction(result.animations[0]).play();
+                    }
+                    this.models.set(key, { model, mixer, isMMD });
+                    resolve({ model, mixer, isMMD });
+                }, undefined, reject);
+            }
         });
     }
 
-    render(modelUrl, c, latticeCamera, sw, sh, outputScale) {
+    render(modelUrl, c, latticeCamera, sw, sh, outputScale, localTime = 0, vmdUrl = null) {
         if (!this.renderer) return null;
         
-        const model = this.models.get(modelUrl);
-        if (!model) {
-            this.loadModel(modelUrl).catch(console.error);
+        const key = modelUrl + (vmdUrl ? '|' + vmdUrl : '');
+        const data = this.models.get(key);
+        if (!data) {
+            this.loadModel(modelUrl, vmdUrl).catch(console.error);
             return null;
+        }
+
+        const { model, mixer, isMMD } = data;
+
+        if (mixer) {
+            mixer.setTime(localTime);
+        } else if (isMMD && this.mmdHelper && vmdUrl) {
+            const helperState = this.mmdHelper.objects.get(model);
+            if (helperState && helperState.mixer) {
+                helperState.mixer.setTime(localTime);
+                if (helperState.ikSolver) helperState.ikSolver.update();
+                if (helperState.grantSolver) helperState.grantSolver.update();
+            }
         }
 
         if (this.canvas.width !== sw || this.canvas.height !== sh) {

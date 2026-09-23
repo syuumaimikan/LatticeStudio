@@ -284,8 +284,11 @@ class SceneRenderer {
         let src = null;
         if (isModel) {
             const asset = this.assets?.get(c.asset);
+            const motionAsset = c.motion ? this.assets?.get(c.motion) : null;
+            const vmdUrl = motionAsset ? motionAsset.url : null;
             if (asset && window.modelRenderer) {
-                src = window.modelRenderer.render(asset.url, c, camera, Math.max(2, Math.round(sceneWidth * ratio)), Math.max(2, Math.round(sceneHeight * ratio)), ratio);
+                const localTime = time - c.start;
+                src = window.modelRenderer.render(asset.url, c, camera, Math.max(2, Math.round(sceneWidth * ratio)), Math.max(2, Math.round(sceneHeight * ratio)), ratio, localTime, vmdUrl);
             }
         } else {
             src = this.source(c,time,ratio);

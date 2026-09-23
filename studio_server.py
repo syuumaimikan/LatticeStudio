@@ -48,7 +48,7 @@ def atomic_json(path, value):
 
 
 def probe(path):
-    if path.suffix.lower() in {'.glb', '.gltf', '.obj'}:
+    if path.suffix.lower() in {'.glb', '.gltf', '.obj', '.pmx', '.pmd', '.vmd'}:
         return {'duration': 86400, 'width': 1000, 'height': 1000, 'audio': False, 'kind': 'model'}
     if not FFPROBE:
         raise ValueError('FFprobe が見つかりません。FFmpeg をインストールしてください。')
@@ -384,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
                 name=unquote(self.headers.get('X-Filename','素材.mp4')).replace('\\','/').split('/')[-1]
                 aid=uuid.uuid4().hex
                 suffix=Path(name).suffix.lower()
-                if suffix not in {'.mp4','.mov','.mkv','.webm','.avi','.m4v','.wav','.mp3','.aac','.m4a','.flac','.ogg','.glb','.gltf','.obj'}: raise ValueError('対応していない拡張子です。')
+                if suffix not in {'.mp4','.mov','.mkv','.webm','.avi','.m4v','.wav','.mp3','.aac','.m4a','.flac','.ogg','.glb','.gltf','.obj','.pmx','.pmd','.vmd'}: raise ValueError('対応していない拡張子です。')
                 file=DATA/'media'/(aid+suffix)
                 try:
                     with file.open('wb') as f:

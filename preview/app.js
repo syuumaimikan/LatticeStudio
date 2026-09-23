@@ -121,6 +121,7 @@ function renderInspector(){
   if(c.kind==='text'){contentField('テキスト内容','textarea',c.text,v=>c.text=v);contentField('文字サイズ','number',c.fontSize,v=>c.fontSize=v,{min:8,max:800});contentField('文字揃え','select',c.align,v=>c.align=v,{choices:[['left','左揃え'],['center','中央'],['right','右揃え']]});}
   if(c.kind==='mask')contentField('切り抜き対象','select',c.maskTarget,v=>c.maskTarget=v,{choices:[['','直下の表示素材（自動）'],...project.clips.filter(v=>v.track<c.track&&!['mask','camera'].includes(v.kind)).map(v=>[v.id,`L${v.track+1} · ${clipName(v)}`])]});
   if(c.kind==='camera')$('#contentControls').append(el('p','inspectorhelp','スケールでズーム、X/Yでパン、回転で画角を操作します。有効なカメラのうち最上位のレイヤーを使います。'));
+  if(c.kind==='model')contentField('モーション','select',c.motion||'',v=>{c.motion=v;changed();},{choices:[['','なし'],...assets.filter(a=>a.name.toLowerCase().endsWith('.vmd')).map(a=>[a.id,a.name])]});
  }
  for(const input of document.querySelectorAll('[data-timing]')){input.disabled=!c||exporting;input.value=c?Number(c[input.dataset.timing].toFixed(6)):0;}
  $('#clipTrack').replaceChildren();for(let i=project.trackCount-1;i>=0;i--)$('#clipTrack').append(new Option(`L${i+1}${i===0?' · 最背面':''}`,i));$('#clipTrack').disabled=!c||exporting;$('#clipTrack').value=c?.track??0;
