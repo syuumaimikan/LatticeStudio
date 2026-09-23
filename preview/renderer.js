@@ -246,7 +246,7 @@ class SceneRenderer {
     const ctx=this.ctx,w=this.canvas.width,h=this.canvas.height,ratio=(framing==='cover'?Math.max:Math.min)(w/sceneWidth,h/sceneHeight);
     ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;ctx.filter='none';ctx.fillStyle='#080d0b';ctx.fillRect(0,0,w,h);
     const projectCamera=this.camera(project,time);
-    const camera = (!strict && spatial) ? {x:projectCamera.x - viewPanX*10, y:projectCamera.y - viewPanY*10, z:projectCamera.z - 1000 * (1 - 1/viewZoom), rotation:0, rotationX:orbitX, rotationY:orbitY, scale:100/viewZoom} : projectCamera;
+    const camera = (!strict && spatial) ? {x: -viewPanX*10, y: -viewPanY*10, z: -2000 * (1 - 1/viewZoom), rotation:0, rotationX:orbitX, rotationY:orbitY, scale:100/viewZoom} : projectCamera;
     const ordered=Lattice.sorted(project).filter(c=>Lattice.active(c,time));
     const masks=ordered.filter(c=>c.kind==='mask');
     const cameraScale=camera.scale/100;
@@ -267,6 +267,7 @@ class SceneRenderer {
     const cameraMatrix=ctx.getTransform();
     for (const clip of ordered) {
       const isCamera = clip.kind === 'camera';
+      const isModel = clip.kind === 'model';
       if ((isCamera && !spatial) || clip.kind === 'mask' || this.assets?.get(clip.asset)?.kind==='audio') continue;
       const c=Lattice.evaluate(clip,time), geometry=this.geometry(c,camera);
       ctx.save();
@@ -276,22 +277,52 @@ class SceneRenderer {
         const mask=Lattice.evaluate(maskClip,time), before=ctx.getTransform();
         this.transform(ctx,mask,camera);this.path(ctx,mask);ctx.clip();ctx.setTransform(before);
       }
-      this.transform(ctx,c,camera);
+      
+      if (!isModel) this.transform(ctx,c,camera);
+      
       try {
-        let src=this.source(c,time,ratio);
+        let src = null;
+        if (isModel) {
+            const asset = this.assets?.get(c.asset);
+            if (asset && window.modelRenderer) {
+                src = window.modelRenderer.render(asset.url, c, camera, Math.max(2, Math.round(sceneWidth * ratio)), Math.max(2, Math.round(sceneHeight * ratio)), ratio);
+            }
+        } else {
+            src = this.source(c,time,ratio);
+        }
         if (!src || (c.kind==='media' && src.readyState<2)) {ctx.restore();continue;}
-        let width=c.kind==='text'?sceneWidth:c.kind==='media'?this.assets.get(c.asset).width:c.kind==='camera'?200:c.width;
-        let height=c.kind==='text'?sceneHeight:c.kind==='media'?this.assets.get(c.asset).height:c.kind==='camera'?150:c.height;
+        
+        let width = isModel ? sceneWidth : c.kind==='text'?sceneWidth:c.kind==='media'?this.assets.get(c.asset).width:c.kind==='camera'?200:c.width;
+        let height = isModel ? sceneHeight : c.kind==='text'?sceneHeight:c.kind==='media'?this.assets.get(c.asset).height:c.kind==='camera'?150:c.height;
         if (c.kind==='media') {const fit=Math.min(sceneWidth/width,sceneHeight/height);width*=fit;height*=fit;}
-        if (c.shader?.enabled) src=this.shader.render(src,c.shader.code,time-c.start+(c.shaderOffset||0),Math.max(2,Math.round(width*ratio)),Math.max(2,Math.round(height*ratio)));
-        ctx.globalAlpha=c.opacity/100;
-        const effects=c.effects||{};
-        ctx.filter=`brightness(${1+(effects.brightness||0)}) contrast(${effects.contrast??1}) saturate(${effects.saturation??1})`;
-        ctx.drawImage(src,-width/2,-height/2,width,height);
-        ctx.filter='none';ctx.globalAlpha=1;
-        const matrix=ctx.getTransform();
-        this.hitRegions.push({id:c.id,inverse:matrix.inverse(),width,height});
-        if (guides&&selected===c.id) {ctx.strokeStyle='#d0ffdf';ctx.lineWidth=2/(ratio*geometry.scale*cameraScale);ctx.strokeRect(-width/2,-height/2,width,height);}
+        
+        if (isModel) {
+            ctx.save();
+            ctx.setTransform(1,0,0,1,(w-sceneWidth*ratio)/2,(h-sceneHeight*ratio)/2);
+            ctx.globalAlpha=c.opacity/100;
+            if (c.shader?.enabled) src=this.shader.render(src,c.shader.code,time-c.start+(c.shaderOffset||0),Math.max(2,Math.round(width*ratio)),Math.max(2,Math.round(height*ratio)));
+            const effects=c.effects||{};
+            ctx.filter=`brightness(${1+(effects.brightness||0)}) contrast(${effects.contrast??1}) saturate(${effects.saturation??1})`;
+            ctx.drawImage(src, 0, 0, Math.round(sceneWidth*ratio), Math.round(sceneHeight*ratio));
+            ctx.restore();
+            
+            ctx.save();
+            this.transform(ctx, c, camera);
+            const matrix=ctx.getTransform();
+            this.hitRegions.push({id:c.id,inverse:matrix.inverse(),width:1000,height:1000});
+            ctx.restore();
+            if (guides&&selected===c.id) {ctx.strokeStyle='#d0ffdf';ctx.lineWidth=2/(ratio*geometry.scale*cameraScale);ctx.strokeRect(-1000/2,-1000/2,1000,1000);}
+        } else {
+            if (c.shader?.enabled) src=this.shader.render(src,c.shader.code,time-c.start+(c.shaderOffset||0),Math.max(2,Math.round(width*ratio)),Math.max(2,Math.round(height*ratio)));
+            ctx.globalAlpha=c.opacity/100;
+            const effects=c.effects||{};
+            ctx.filter=`brightness(${1+(effects.brightness||0)}) contrast(${effects.contrast??1}) saturate(${effects.saturation??1})`;
+            ctx.drawImage(src,-width/2,-height/2,width,height);
+            ctx.filter='none';ctx.globalAlpha=1;
+            const matrix=ctx.getTransform();
+            this.hitRegions.push({id:c.id,inverse:matrix.inverse(),width,height});
+            if (guides&&selected===c.id) {ctx.strokeStyle='#d0ffdf';ctx.lineWidth=2/(ratio*geometry.scale*cameraScale);ctx.strokeRect(-width/2,-height/2,width,height);}
+        }
       } catch (error) { if (strict) {ctx.restore();ctx.restore();throw error;}this.report(error); }
       ctx.restore();
     }
