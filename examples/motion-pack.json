@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "name": "モーション素材パック",
+  "description": "字幕・背景・フェードの追加サンプル",
+  "materials": [
+    {
+      "name": "大きな見出し",
+      "template": {
+        "kind": "text",
+        "text": "見出しを入力",
+        "fontSize": 220,
+        "color": "#ffffff",
+        "keys": {
+          "opacity": [
+            {
+              "time": 0,
+              "value": 0,
+              "easing": "smooth"
+            },
+            {
+              "time": 0.5,
+              "value": 100,
+              "easing": "linear"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "暖色グラデーション",
+      "template": {
+        "kind": "shape",
+        "shape": "gradient",
+        "color": "#ef8866",
+        "width": 3840,
+        "height": 2160
+      }
+    }
+  ],
+  "effects": [
+    {
+      "name": "フェードイン",
+      "values": {
+        "keys": {
+          "opacity": [
+            {
+              "time": 0,
+              "value": 0,
+              "easing": "smooth"
+            },
+            {
+              "time": 1,
+              "value": 100,
+              "easing": "linear"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

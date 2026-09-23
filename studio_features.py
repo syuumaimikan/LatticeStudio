@@ -91,8 +91,8 @@ class StudioFeatures:
         if not self.ffmpeg:
             raise ValueError('FFmpeg が見つかりません。')
         encoder, encoder_args = options(self.ffmpeg, body)
-        pixel_format = body.get('pixelFormat', 'png')
-        if pixel_format not in ('png', 'rgb24'):
+        pixel_format = body.get('pixelFormat', 'jpeg')
+        if pixel_format not in ('jpeg', 'rgb24'):
             raise ValueError('画素形式が不正です。')
         with self.lock:
             for sid, s in list(self.sessions.items()):
@@ -109,7 +109,7 @@ class StudioFeatures:
             log = (self.data / 'jobs' / (sid + '.log')).open('w', encoding='utf-8')
             try:
                 input_args = (['-f', 'rawvideo', '-pixel_format', 'rgb24', '-video_size', f'{width}x{height}']
-                              if pixel_format == 'rgb24' else ['-f', 'image2pipe', '-vcodec', 'png'])
+                              if pixel_format == 'rgb24' else ['-f', 'image2pipe', '-vcodec', 'mjpeg'])
                 process = subprocess.Popen([self.ffmpeg, '-v', 'error', '-nostdin', '-y',
                     *input_args, '-framerate', '30', '-i', 'pipe:0', '-an', *encoder_args,
                     '-pix_fmt', 'yuv420p', '-color_range', 'tv', str(video)], stdin=subprocess.PIPE,
@@ -156,7 +156,7 @@ class StudioFeatures:
             if s['pixelFormat'] == 'rgb24':
                 valid = len(png) == size == s['width'] * s['height'] * 3
             else:
-                valid = not (len(png) != size or png[:8] != b'\x89PNG\r\n\x1a\n' or struct.unpack('>II', png[16:24]) != (s['width'],s['height']))
+                valid = not (len(png) != size or png[:3] != b'\xff\xd8\xff')
             if not valid:
                 raise ValueError('フレーム画像の解像度または形式が不正です。')
             try:

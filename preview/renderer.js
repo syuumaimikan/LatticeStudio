@@ -146,7 +146,7 @@ class SceneRenderer {
         const done = () => { cleanup(); resolve(); };
         const fail = () => { cleanup(); reject(Error('元画質の素材をデコードできません。H.264 MP4に変換して再読み込みしてください。')); };
         const abort = () => { cleanup(); reject(Error('書き出しを中止しました。')); };
-        const timer = setTimeout(fail, 30000);
+        const timer = setTimeout(fail, 120000);
         media.addEventListener(event, done, { once: true }); media.addEventListener('error', fail, { once: true });
         signal?.addEventListener('abort', abort, { once: true });
       });
@@ -165,14 +165,32 @@ class SceneRenderer {
   }
 
   geometry(c, camera) {
-    const depth = 2000 / Math.max(100, 2000 - c.z + camera.z);
-    return { x:c.x - camera.x, y:c.y - camera.y, scale:c.scale / 100 * depth,
-      rotation:c.rotation * Math.PI / 180 };
+    let dx = c.x - camera.x, dy = c.y - camera.y, dz = c.z - camera.z;
+    let cx = 0, cy = 0;
+    if (camera.rotationX) {
+      cx = -camera.rotationX * Math.PI / 180;
+      const cos = Math.cos(cx), sin = Math.sin(cx);
+      const y = dy * cos - dz * sin, z = dy * sin + dz * cos;
+      dy = y; dz = z;
+    }
+    if (camera.rotationY) {
+      cy = -camera.rotationY * Math.PI / 180;
+      const cos = Math.cos(cy), sin = Math.sin(cy);
+      const x = dx * cos + dz * sin, z = -dx * sin + dz * cos;
+      dx = x; dz = z;
+    }
+    const depth = 2000 / Math.max(100, 2000 - dz);
+    return { x:dx, y:dy, scale:c.scale / 100 * depth,
+      rotation:c.rotation * Math.PI / 180,
+      matrix: [Math.cos(cy), 0, Math.sin(cx) * Math.sin(cy), Math.cos(cx)]
+    };
   }
 
   transform(ctx, c, camera) {
     const g = this.geometry(c, camera);
-    ctx.translate(g.x, g.y); ctx.rotate(g.rotation); ctx.scale(g.scale, g.scale);
+    ctx.translate(g.x, g.y);
+    ctx.transform(g.matrix[0], g.matrix[1], g.matrix[2], g.matrix[3], 0, 0);
+    ctx.rotate(g.rotation); ctx.scale(g.scale, g.scale);
   }
 
   path(ctx, c) {

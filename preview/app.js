@@ -4,7 +4,7 @@ const el = (tag, className, text) => { const node=document.createElement(tag); i
 const C=Lattice;
 let project={version:2,name:'無題の映像',trackCount:6,clips:[]};
 let assets=[],plugins=[],token='',selected=null,selectedKey=null;
-let time=0,playing=false,lastTick=0,zoom=45,spatial=true,orbitX=12,orbitY=-18,viewZoom=1;
+let time=0,playing=false,lastTick=0,zoom=45,spatial=true,orbitX=0,orbitY=0,viewZoom=1,viewPanX=0,viewPanY=0,viewPanMode=false;
 let undoStack=[],redoStack=[],saveTimer,toastTimer,saving=Promise.resolve();
 let showKeys=false,exporting=false,exportJob=null,exportAbort=null,dragging=false,refreshBusy=false;
 let lastAssetSignature='',lastPluginSignature='';
@@ -133,7 +133,7 @@ function renderFrame(){
 function fitViewport(){const v=$('#viewport');$('#composition').style.width=Math.max(40,Math.min(v.clientWidth*(spatial?.7:.8),v.clientHeight*.78*(project.width||3840)/(project.height||2160)))+'px';}
 function setView(){
  fitViewport();
- $('#viewport').classList.toggle('spatial',spatial);$('#mode3d').classList.toggle('active',spatial);$('#mode2d').classList.toggle('active',!spatial);$('#composition').style.transform=`${spatial?`rotateX(${orbitX}deg) rotateY(${orbitY}deg)`:''} scale(${viewZoom})`;$('#viewZoomLabel').textContent=Math.round(viewZoom*100)+'%';$('#viewLabel').textContent=spatial?'/ 3D 空間':'/ 出力画面';$('.viewportlabel').firstChild.textContent=spatial?'空間編集 ':'出力プレビュー ';$('.viewportlabel span').textContent=spatial?'レイヤー優先':`${project.width||3840} × ${project.height||2160}`;$('.viewhint').textContent=spatial?'背景ドラッグで視点回転 · ホイールで拡大縮小 · Alt＋ドラッグで素材移動':'素材をドラッグで移動 · ホイールは編集表示の拡大縮小';renderFrame();
+ $('#viewport').classList.toggle('spatial',spatial);$('#mode3d').classList.toggle('active',spatial);$('#mode2d').classList.toggle('active',!spatial);$('#composition').style.transform=`translate(${viewPanX}px,${viewPanY}px) ${spatial?`rotateX(${orbitX}deg) rotateY(${orbitY}deg)`:''} scale(${viewZoom})`;$('#viewZoomLabel').textContent=Math.round(viewZoom*100)+'%';$('#viewLabel').textContent=spatial?'/ 3D 空間':'/ 出力画面';$('.viewportlabel').firstChild.textContent=spatial?'空間編集 ':'出力プレビュー ';$('.viewportlabel span').textContent=spatial?'レイヤー優先':`${project.width||3840} × ${project.height||2160}`;$('.viewhint').textContent=spatial?'ドラッグで視点回転 · Shift／中ボタンドラッグで視点移動 · ホイールで拡大縮小 · Alt＋ドラッグで素材移動':'素材をドラッグで移動 · Shift／中ボタンドラッグで視点移動 · ホイールで拡大縮小';renderFrame();
 }
 function stop(){playing=false;$('#play').textContent='▶';renderer.pause();renderFrame();}
 function togglePlay(){if(exporting)return;if(!duration())return toast('素材を追加してください。');if(playing)return stop();if(time>=duration())time=0;playing=true;lastTick=performance.now();$('#play').textContent='Ⅱ';requestAnimationFrame(tick);}
@@ -149,10 +149,10 @@ async function importFiles(files){
 }
 function renderPlugins(){
  const root=$('#plugins');root.replaceChildren();
- const list=[...plugins,...(window.ExtraPlugins||[])];
- const tools=el('div','pluginfilters'),search=el('input'),category=el('select');search.placeholder='エフェクトを検索';search.setAttribute('aria-label','エフェクトを検索');category.setAttribute('aria-label','エフェクトの分類');category.append(new Option('すべて',''),...['カラー','色変換','映像効果','アニメーション','追加プラグイン'].map(v=>new Option(v,v)));tools.append(search,category);root.append(tools);const grid=el('div','plugincards');root.append(grid);
+ const list=[...plugins.flatMap(p=>p.version===2?[...p.materials.map(v=>({...v,material:true,category:'追加素材'})),...p.effects.map(v=>({...v,extensionEffect:true,category:'追加プラグイン'}))]:[p]),...(window.ExtraPlugins||[])];
+ const tools=el('div','pluginfilters'),search=el('input'),category=el('select');search.placeholder='エフェクトを検索';search.setAttribute('aria-label','エフェクトを検索');category.setAttribute('aria-label','エフェクトの分類');category.append(new Option('すべて',''),...['カラー','色変換','映像効果','アニメーション','追加素材','追加プラグイン'].map(v=>new Option(v,v)));tools.append(search,category);root.append(tools);const grid=el('div','plugincards');root.append(grid);
  const draw=()=>{grid.replaceChildren();const query=search.value.toLowerCase();const found=list.filter(p=>{const group=p.category||(p.id==='warm'||p.id==='mono'||p.id==='soft'?'カラー':'追加プラグイン');return (!category.value||group===category.value)&&(p.name+' '+p.description+' '+(window.uiText?window.uiText(p.name)+' '+window.uiText(p.description):'')).toLowerCase().includes(query);});
- for(const p of found){const card=el('div','plugin');card.append(el('strong','',p.name),el('p','',p.description));const button=el('button','',p.code?'シェーダーを適用':'カラーを適用');button.onclick=()=>{const c=selection();if(!c||['camera','mask'].includes(c.kind))return toast('映像・図形・テキストを選択してください。');if(exporting)return;
+ for(const p of found){const card=el('div','plugin');card.append(el('strong','',p.name),el('p','',p.description));const button=el('button','',p.material?'素材を追加':p.extensionEffect?'効果を適用':p.code?'シェーダーを適用':'カラーを適用');button.onclick=()=>{if(p.material)return addPluginMaterial(p);if(p.extensionEffect)return applyPluginEffect(p);const c=selection();if(!c||['camera','mask'].includes(c.kind))return toast('映像・図形・テキストを選択してください。');if(exporting)return;
  try{if(p.code)renderer.shader.compile(p.code);checkpoint();if(p.code){c.shader={enabled:true,code:p.code,name:p.name};}else{c.effects=C.clone(p.effects);c.effectName=p.name;}changed();toast(p.name+' を適用しました。Ctrl+Zで取り消せます。');}catch(e){toast(e.message);}};card.append(button);grid.append(card);}
  if(!found.length)grid.append(el('p','muted','一致するエフェクトはありません。'));};search.oninput=category.onchange=draw;draw();
 }
@@ -190,12 +190,12 @@ async function exportMovie(quality,settings={}){
  const box=showDialog('映像を書き出しています','共通レンダラーでアニメーション・文字・クリッピング・シェーダーを元画質から描画します。このタブを開いたままお待ちください。');
  const progress=el('progress');progress.max=1;progress.value=0;const status=el('p','','準備中…');const cancel=el('button','wide','書き出しを中止');cancel.onclick=()=>controller.abort();box.append(progress,status,cancel);$('#dialog .dialogclose').disabled=true;renderInspector();
  try{
-  const accelerated=settings.acceleration!==false && await PixelEngine.init();session=await api('/api/render/start',{project:snapshot,quality,...settings,pixelFormat:accelerated?'rgb24':'png'},controller.signal);const canvas=document.createElement('canvas');canvas.width=session.width;canvas.height=session.height;output=new SceneRenderer(canvas,message=>{status.textContent=message;});output.sync(snapshot,assets,'original');await document.fonts.ready;
+  const accelerated=settings.acceleration!==false && await PixelEngine.init();session=await api('/api/render/start',{project:snapshot,quality,...settings,pixelFormat:accelerated?'rgb24':'jpeg'},controller.signal);const canvas=document.createElement('canvas');canvas.width=session.width;canvas.height=session.height;output=new SceneRenderer(canvas,message=>{status.textContent=message;});output.sync(snapshot,assets,'original');await document.fonts.ready;
   for(let frame=0;frame<session.frames;frame++){
    if(controller.signal.aborted)throw Error('書き出しを中止しました。');const at=frame/30;await output.seekExact(snapshot,at,controller.signal);output.draw(snapshot,at,{strict:true,framing:settings.framing||'contain'});
-   const png=accelerated?PixelEngine.rgb(output.ctx,canvas.width,canvas.height):await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('画像の生成に失敗しました。')),'image/png'));
-   const response=await fetch(`/api/render/frame/${session.id}/${frame}`,{method:'POST',headers:{'X-Lattice-Token':token,'Content-Type':accelerated?'application/octet-stream':'image/png'},body:png,signal:controller.signal});if(!response.ok)throw Error((await response.json()).error);
-   progress.value=(frame+1)/session.frames;status.textContent=`${session.encoder} · ${accelerated?'WASM':'PNG'} · ${frame+1} / ${session.frames} フレーム · ${Math.round(progress.value*100)}%`;
+   const png=accelerated?PixelEngine.rgb(output.ctx,canvas.width,canvas.height):await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(Error('画像の生成に失敗しました。')),'image/jpeg',0.95));
+   const response=await fetch(`/api/render/frame/${session.id}/${frame}`,{method:'POST',headers:{'X-Lattice-Token':token,'Content-Type':accelerated?'application/octet-stream':'image/jpeg'},body:png,signal:controller.signal});const res=await response.json();if(!response.ok)throw Error(res.error);
+   progress.value=(frame+1)/session.frames;status.textContent=`${session.encoder} · ${accelerated?'WASM':'JPEG'} · ${frame+1} / ${session.frames} フレーム · ${Math.round(progress.value*100)}%`;
   }
   const result=await api('/api/render/finish',{id:session.id});session=null;exportJob=result.job;$('#dialog').close();toast('映像の描画が完了しました。音声を合成しています。');
  }catch(e){if(session)await api('/api/render/cancel',{id:session.id}).catch(()=>{});$('#dialog').close();toast(controller.signal.aborted?'書き出しを中止しました。':e.message);}
@@ -207,17 +207,17 @@ async function exportDialog(){
  let saved={};try{const r=await fetch('/api/export-settings');if(r.ok)saved=await r.json();}catch{}
  const quality=el('select'),encoder=el('select'),preset=el('select'),acceleration=el('input');
  const field=(name,input)=>{const label=el('label','field',name);input.setAttribute('aria-label',name);label.append(input);box.append(label);};
- quality.append(new Option('4K UHD · 3840 × 2160','4k'),new Option('フルHD · 1920 × 1080','1080p'),new Option('HD · 1280 × 720','720p'),new Option('縦長 · 1080 × 1920','portrait'),new Option('正方形 · 1080 × 1080','square'),new Option('カスタムサイズ','custom'));quality.value=saved.quality||'custom';field('解像度',quality);
+ quality.append(new Option('4K UHD · 3840 × 2160','4k'),new Option('フルHD · 1920 × 1080','1080p'),new Option('HD · 1280 × 720','720p'),new Option('縦長 · 1080 × 1920','portrait'),new Option('正方形 · 1080 × 1080','square'),new Option('カスタムサイズ','custom'));quality.value=saved.quality||'1080p';field('解像度',quality);
  const width=el('input'),height=el('input'),framing=el('select');for(const input of [width,height]){input.type='number';input.min=128;input.max=4096;input.step=2;}width.value=saved.width||project.width||3840;height.value=saved.height||project.height||2160;field('幅（px）',width);field('高さ（px）',height);
  const sizePreset={'4k':[3840,2160],'1080p':[1920,1080],'720p':[1280,720],'portrait':[1080,1920],'square':[1080,1080]};const updateSize=()=>{const size=sizePreset[quality.value];width.disabled=height.disabled=!!size;if(size){width.value=size[0];height.value=size[1];}};quality.onchange=updateSize;updateSize();
  framing.append(new Option('全体を収める（余白あり）','contain'),new Option('画面を埋める（中央で切り抜き）','cover'));framing.value=saved.framing||'contain';field('縦横比が異なる場合',framing);box.append(el('p','muted','プロジェクトと異なる縦横比では上記の設定を適用します。幅・高さは128〜4096の偶数、総画素数は4K UHD以下。'));
  encoder.append(new Option('自動（利用可能なGPUを優先）','auto'));field('エンコーダー',encoder);
- preset.append(new Option('標準','balanced'),new Option('速度優先','fast'),new Option('画質優先','quality'));preset.value=saved.encodingQuality||'balanced';field('画質・速度',preset);
+ preset.append(new Option('標準','balanced'),new Option('速度優先','fast'),new Option('画質優先','quality'));preset.value=saved.encodingQuality||'fast';field('画質・速度',preset);
  const gpuMode=el('select');gpuMode.append(new Option('標準','normal'),new Option('最大品質（GPU高負荷を許可）','maximum'));gpuMode.value=saved.gpuMode||'normal';field('GPUの使用方針',gpuMode);box.append(el('p','muted','最大品質はGPUの解析・圧縮を強化します。GPU使用率100%を保証するものではありません。CPUは選択できません。'));
  acceleration.type='checkbox';acceleration.checked=saved.acceleration!==false;field('WebAssemblyで高速転送',acceleration);
  const note=el('p','muted','GPUを実際に試験しています…');box.append(note);
  const button=el('button','primary','MP4 書き出しを開始');button.disabled=true;box.append(button);
- try{const r=await fetch('/api/encoders');if(!r.ok)throw Error('エンコーダー情報を取得できません。サーバーを最新版で起動してください。');const list=await r.json();for(const item of list){const option=new Option(item.label+(item.available?'':' · 使用不可'),item.id);option.disabled=!item.available;encoder.append(option);}encoder.value=list.some(e=>e.id===saved.encoder&&e.available)?saved.encoder:'auto';button.disabled=!list.some(e=>e.available);note.textContent='GPUは映像圧縮に使用します。描画・素材のシークは別処理です。WASMが利用できない場合はPNG転送に切り替えます。';}catch(e){note.textContent=e.message;}
+ try{const r=await fetch('/api/encoders');if(!r.ok)throw Error('エンコーダー情報を取得できません。サーバーを最新版で起動してください。');const list=await r.json();for(const item of list){const option=new Option(item.label+(item.available?'':' · 使用不可'),item.id);option.disabled=!item.available;encoder.append(option);}encoder.value=list.some(e=>e.id===saved.encoder&&e.available)?saved.encoder:'auto';button.disabled=!list.some(e=>e.available);note.textContent='GPUは映像圧縮に使用します。描画・素材のシークは別処理です。WASMが利用できない場合はJPEG転送に切り替えます。';}catch(e){note.textContent=e.message;}
  button.onclick=async()=>{const settings={encoder:encoder.value,encodingQuality:preset.value,acceleration:acceleration.checked,width:Number(width.value),height:Number(height.value),framing:framing.value,gpuMode:gpuMode.value};if(!width.checkValidity()||!height.checkValidity()||settings.width*settings.height>3840*2160)return toast('出力サイズの範囲を確認してください。');try{await api('/api/export-settings',{...settings,quality:quality.value});await exportMovie(quality.value,settings);}catch(e){toast(e.message);}};
 }
 
@@ -233,13 +233,14 @@ async function refreshState(initial=false){
 buildTransformControls();
 $('#import').onclick=$('#emptyImport').onclick=()=>$('#fileInput').click();$('#fileInput').onchange=e=>importFiles(e.target.files);$('#search').oninput=renderAssets;
 for(const button of document.querySelectorAll('[data-builtin]'))button.onclick=()=>addBuiltin(button.dataset.builtin);
-$('#play').onclick=togglePlay;$('#begin').onclick=()=>{stop();time=0;renderFrame();};$('#end').onclick=()=>{stop();time=Math.max(0,duration()-1/30);renderFrame();};
+$('#play').onclick=()=>togglePlay();$('#begin').onclick=()=>{stop();time=0;renderFrame();};$('#end').onclick=()=>{stop();time=Math.max(0,duration()-1/30);renderFrame();};
 $('#mode2d').onclick=()=>{spatial=false;setView();};$('#mode3d').onclick=()=>{spatial=true;setView();};$('#grid').onclick=()=>{$('#viewport').classList.toggle('nogrid');$('#grid').classList.toggle('active');};
-$('#resetView').onclick=()=>{orbitX=12;orbitY=-18;viewZoom=1;setView();};$('#viewZoomIn').onclick=()=>{viewZoom=C.clamp(viewZoom*1.2,.2,4);setView();};$('#viewZoomOut').onclick=()=>{viewZoom=C.clamp(viewZoom/1.2,.2,4);setView();};
+$('#resetView').onclick=()=>{orbitX=0;orbitY=0;viewZoom=1;viewPanX=0;viewPanY=0;setView();};$('#viewZoomIn').onclick=()=>{viewZoom=C.clamp(viewZoom*1.2,.2,4);setView();};$('#viewZoomOut').onclick=()=>{viewZoom=C.clamp(viewZoom/1.2,.2,4);setView();};
 $('#quality').onchange=()=>{renderer.sync(project,assets,$('#quality').value);renderFrame();};
 $('#viewport').addEventListener('wheel',e=>{if(exporting)return;e.preventDefault();viewZoom=C.clamp(viewZoom*Math.exp(-e.deltaY*.001),.2,4);setView();},{passive:false});
 $('#viewport').onpointerdown=e=>{
- if(e.button!==0||exporting||e.target.closest('button'))return;
+ if(![0,1].includes(e.button)||exporting||e.target.closest('button'))return;
+ if(e.button===1||e.shiftKey||viewPanMode){const x=e.clientX,y=e.clientY,px=viewPanX,py=viewPanY;beginDrag(e,$('#viewport'),ev=>{viewPanX=px+ev.clientX-x;viewPanY=py+ev.clientY-y;setView();});return;}
  const canvas=$('#scene'),rect=canvas.getBoundingClientRect();const hit=renderer.pick((e.clientX-rect.left)/rect.width*canvas.width,(e.clientY-rect.top)/rect.height*canvas.height);
  if(hit&&(!spatial||e.altKey)){
   stop();select(hit,false);const c=selection(),x=e.clientX,y=e.clientY,at=C.localTime(c,time),ox=C.valueAt(c,'x',at),oy=C.valueAt(c,'y',at),camera=renderer.camera(project,time);let moved=false;

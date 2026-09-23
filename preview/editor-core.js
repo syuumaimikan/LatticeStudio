@@ -6,7 +6,9 @@
     y: { label: '位置 Y', min: -4320, max: 4320, initial: 0 },
     z: { label: '奥行き Z', min: -1500, max: 1500, initial: 0 },
     scale: { label: 'スケール / ズーム', min: 1, max: 800, initial: 100 },
-    rotation: { label: '回転', min: -3600, max: 3600, initial: 0 },
+    rotation: { label: '回転 Z', min: -3600, max: 3600, initial: 0 },
+    rotationX: { label: '回転 X', min: -3600, max: 3600, initial: 0 },
+    rotationY: { label: '回転 Y', min: -3600, max: 3600, initial: 0 },
     opacity: { label: '不透明度', min: 0, max: 100, initial: 100 },
   };
   const DEFAULT_SHADER = `// uv: 0〜1 の座標 / color: 元の色

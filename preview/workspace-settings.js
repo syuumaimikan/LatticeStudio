@@ -30,3 +30,5 @@ const counter=el('button','','タイムコード');counter.onclick=()=>{addBuilt
 const subtitle=el('button','','字幕');subtitle.onclick=()=>{addBuiltin('text');const c=selection();if(c){c.name='字幕';c.text='ここに字幕を入力';c.y=(project.height||2160)*.36;c.fontSize=96;changed();}};$('#builtins').append(subtitle);
 const extraInspector=renderInspector;renderInspector=function(){extraInspector();const c=selection(),select=$('#contentControls select[aria-label="図形"]');if(select){for(const[k,v]of Object.entries(newShapes))select.append(new Option(v,k));select.value=c.shape;}};
 renderFrame();
+
+const panViewButton=el('button','','✥');panViewButton.id='panView';panViewButton.title='視点移動モード（出力カメラは変更しません）';panViewButton.setAttribute('aria-label','視点移動モード');panViewButton.setAttribute('aria-pressed','false');panViewButton.onclick=()=>{viewPanMode=!viewPanMode;panViewButton.classList.toggle('active',viewPanMode);panViewButton.setAttribute('aria-pressed',String(viewPanMode));$('#viewport').style.cursor=viewPanMode?'grab':'';};$('#resetView').before(panViewButton);

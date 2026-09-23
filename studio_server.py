@@ -118,7 +118,7 @@ def number(obj, key, default, low, high):
 
 
 PARAM_BOUNDS = {'x':(-7680,7680),'y':(-4320,4320),'z':(-1500,1500),
-                'scale':(1,800),'rotation':(-3600,3600),'opacity':(0,100)}
+                'scale':(1,800),'rotation':(-3600,3600),'rotationX':(-3600,3600),'rotationY':(-3600,3600),'opacity':(0,100)}
 
 
 def validate_project(p):
@@ -393,9 +393,9 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/export':
                 return self.send_json({'job':export_project(body['project'],body.get('quality','1080p'))})
             if path=='/api/plugin':
-                if body.get('version')!=1 or not isinstance(body.get('name'),str) or not 1<=len(body['name'])<=80: raise ValueError('プラグイン名と version: 1 が必要です。')
-                validate_effects(body.get('effects'))
-                plugin={'id':uuid.uuid4().hex,'version':1,'name':body['name'],'description':str(body.get('description','ユーザープラグイン'))[:160],'effects':body['effects']}
+                from studio_plugins import validate_plugin
+                plugin=validate_plugin(body,validate_project,validate_effects)
+                plugin['id']=uuid.uuid4().hex
                 atomic_json(DATA/'plugins'/(plugin['id']+'.json'),plugin)
                 return self.send_json(plugin)
             return self.send_json({'error':'見つかりません。'},404)

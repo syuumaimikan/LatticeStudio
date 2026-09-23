@@ -34,8 +34,26 @@ def main():
     http = server.ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
     threading.Thread(target=http.serve_forever, daemon=True).start()
     webview.settings['ALLOW_DOWNLOADS'] = True
+    child_windows = {}
+    class PanelAPI:
+        def close_panel(self, session, kind):
+            child=child_windows.get((session,kind))
+            if child: child.destroy()
+            return True
+        def open_panel(self, session, kind):
+            import re
+            if not isinstance(session,str) or not re.fullmatch(r'[a-f0-9-]{36}',session) or kind not in ('media','inspector','plugins'):
+                raise ValueError('Invalid panel')
+            key=(session,kind)
+            if key in child_windows:
+                child_windows[key].show()
+                return True
+            child=webview.create_window('Lattice Studio — '+kind,f'http://127.0.0.1:{http.server_port}/panel.html?session={session}&panel={kind}',width=480,height=760,min_size=(320,400),background_color='#171b1d',js_api=PanelAPI())
+            child_windows[key]=child
+            child.events.closed += lambda: child_windows.pop(key,None)
+            return True
     window = webview.create_window('Lattice Studio — 動画編集', f'http://127.0.0.1:{http.server_port}',
-        width=1440, height=900, min_size=(1100, 700), background_color='#101515', text_select=True)
+        width=1440, height=900, min_size=(1100, 700), background_color='#101515', text_select=True, js_api=PanelAPI())
     close_state = {'ready': False, 'saving': False}
     def closing():
         if close_state['ready']:
@@ -54,6 +72,8 @@ def main():
                     with server.LOCK:
                         server.atomic_json(server.DATA / 'project.json', value)
                 close_state['ready'] = True
+                for child in list(child_windows.values()):
+                    child.destroy()
                 window.destroy()
             except Exception:
                 close_state['saving'] = False
@@ -67,6 +87,29 @@ def main():
         time.sleep(4)
         result = window.evaluate_js("JSON.stringify({title:document.title,wasm:!!PixelEngine.wasm,canvas:!!document.querySelector('#scene'),connection:document.querySelector('#connection').textContent})")
         info = json.loads(result)
+        if '--panel-smoke' in sys.argv:
+            window.run_js("project={version:2,name:'panel test',trackCount:6,clips:[C.createClip('panel-test','text',0,0)]};selected='panel-test';changed();[...document.querySelectorAll('button')].find(b=>b.textContent==='▥ レイアウト').click();[...document.querySelectorAll('#dialogContent button')].find(b=>b.textContent==='インスペクターを別ウィンドウにする').click();")
+            for _ in range(25):
+                time.sleep(1)
+                if child_windows:
+                    child=next(iter(child_windows.values()))
+                    if child.evaluate_js("!!document.querySelector('#remote textarea')"):
+                        break
+            info['childCount']=len(child_windows)
+            if child_windows:
+                child=next(iter(child_windows.values()))
+                child.run_js("const t=document.querySelector('#remote textarea');t.focus();t.value='detached edit';t.dispatchEvent(new Event('input',{bubbles:true}));")
+                time.sleep(1)
+                child.run_js("{const next=document.querySelector('#remote textarea');next.value='detached edit 2';next.dispatchEvent(new Event('input',{bubbles:true}));}")
+                time.sleep(1)
+                info['editedText']=window.evaluate_js("project.clips[0].text")
+                child.run_js("document.querySelector('#dock').click()")
+                time.sleep(2)
+                info['docked']=window.evaluate_js("!document.querySelector('.inspector').classList.contains('undocked-panel')")
+            (home/'panel-smoke.json').write_text(json.dumps(info,ensure_ascii=False),encoding='utf-8')
+            for child in list(child_windows.values()): child.destroy()
+            window.destroy()
+            return
         info['pluginShaders'] = window.evaluate_js("ExtraPlugins.filter(p=>p.code).map(p=>{renderer.shader.compile(p.code);return p.name;})")
         window.run_js("""(async()=>{
           try {
@@ -92,7 +135,7 @@ def main():
         (home / 'desktop-smoke.json').write_text(json.dumps(info, ensure_ascii=False), encoding='utf-8')
         window.destroy()
     try:
-        webview.start(smoke if '--smoke-test' in sys.argv else None, gui='edgechromium',
+        webview.start(smoke if '--smoke-test' in sys.argv or '--panel-smoke' in sys.argv else None, gui='edgechromium',
                       private_mode=False, storage_path=str(home / 'webview'))
     finally:
         http.shutdown()
