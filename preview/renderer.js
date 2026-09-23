@@ -210,6 +210,17 @@ class SceneRenderer {
 
   source(c, time, outputScale) {
     if (c.kind === 'media') return this.sources.get(c.id);
+    if (c.kind === 'camera') {
+      const sw = Math.max(2, Math.round(200*outputScale)), sh = Math.max(2, Math.round(150*outputScale));
+      if (this.scratch.width!==sw||this.scratch.height!==sh) { this.scratch.width=sw;this.scratch.height=sh; }
+      const ctx=this.scratch.getContext('2d');
+      ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,sw,sh);
+      ctx.scale(outputScale,outputScale);
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=4;ctx.lineJoin='round';
+      ctx.strokeRect(20,20,100,110);
+      ctx.beginPath();ctx.moveTo(120,50);ctx.lineTo(170,20);ctx.lineTo(170,130);ctx.lineTo(120,100);ctx.stroke();
+      return this.scratch;
+    }
     const w = c.kind === 'text' ? (this.sceneWidth||3840) : c.width;
     const h = c.kind === 'text' ? (this.sceneHeight||2160) : c.height;
     const sw = Math.max(2, Math.round(w*outputScale)), sh = Math.max(2,Math.round(h*outputScale));
@@ -230,11 +241,13 @@ class SceneRenderer {
     return this.scratch;
   }
 
-  draw(project, time, { playing=false, strict=false, selected=null, guides=false, framing="contain" }={}) {
+  draw(project, time, { playing=false, strict=false, selected=null, guides=false, framing="contain", spatial=false, orbitX=0, orbitY=0, viewPanX=0, viewPanY=0, viewZoom=1 }={}) {
     const sceneWidth=project.width||3840,sceneHeight=project.height||2160;this.sceneWidth=sceneWidth;this.sceneHeight=sceneHeight;
     const ctx=this.ctx,w=this.canvas.width,h=this.canvas.height,ratio=(framing==='cover'?Math.max:Math.min)(w/sceneWidth,h/sceneHeight);
     ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;ctx.filter='none';ctx.fillStyle='#080d0b';ctx.fillRect(0,0,w,h);
-    const camera=this.camera(project,time), ordered=Lattice.sorted(project).filter(c=>Lattice.active(c,time));
+    const projectCamera=this.camera(project,time);
+    const camera = (!strict && spatial) ? {x:projectCamera.x - viewPanX*10, y:projectCamera.y - viewPanY*10, z:projectCamera.z - 1000 * (1 - 1/viewZoom), rotation:0, rotationX:orbitX, rotationY:orbitY, scale:100/viewZoom} : projectCamera;
+    const ordered=Lattice.sorted(project).filter(c=>Lattice.active(c,time));
     const masks=ordered.filter(c=>c.kind==='mask');
     const cameraScale=camera.scale/100;
     this.hitRegions=[];
@@ -253,7 +266,8 @@ class SceneRenderer {
     ctx.save();ctx.translate((w-sceneWidth*ratio)/2,(h-sceneHeight*ratio)/2);ctx.scale(ratio,ratio);ctx.beginPath();ctx.rect(0,0,sceneWidth,sceneHeight);ctx.clip();ctx.translate(sceneWidth/2,sceneHeight/2);ctx.rotate(-camera.rotation*Math.PI/180);ctx.scale(cameraScale,cameraScale);
     const cameraMatrix=ctx.getTransform();
     for (const clip of ordered) {
-      if (['camera','mask'].includes(clip.kind)||this.assets?.get(clip.asset)?.kind==='audio') continue;
+      const isCamera = clip.kind === 'camera';
+      if ((isCamera && !spatial) || clip.kind === 'mask' || this.assets?.get(clip.asset)?.kind==='audio') continue;
       const c=Lattice.evaluate(clip,time), geometry=this.geometry(c,camera);
       ctx.save();
       for (const maskClip of masks) {
@@ -266,8 +280,8 @@ class SceneRenderer {
       try {
         let src=this.source(c,time,ratio);
         if (!src || (c.kind==='media' && src.readyState<2)) {ctx.restore();continue;}
-        let width=c.kind==='text'?sceneWidth:c.kind==='media'?this.assets.get(c.asset).width:c.width;
-        let height=c.kind==='text'?sceneHeight:c.kind==='media'?this.assets.get(c.asset).height:c.height;
+        let width=c.kind==='text'?sceneWidth:c.kind==='media'?this.assets.get(c.asset).width:c.kind==='camera'?200:c.width;
+        let height=c.kind==='text'?sceneHeight:c.kind==='media'?this.assets.get(c.asset).height:c.kind==='camera'?150:c.height;
         if (c.kind==='media') {const fit=Math.min(sceneWidth/width,sceneHeight/height);width*=fit;height*=fit;}
         if (c.shader?.enabled) src=this.shader.render(src,c.shader.code,time-c.start+(c.shaderOffset||0),Math.max(2,Math.round(width*ratio)),Math.max(2,Math.round(height*ratio)));
         ctx.globalAlpha=c.opacity/100;

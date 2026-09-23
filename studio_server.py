@@ -261,6 +261,33 @@ FEATURES = StudioFeatures(DATA, ASSETS, JOBS, POOL, LOCK, FFMPEG, FLAGS, validat
 WAVEFORMS = Waveforms(DATA, FFMPEG, FLAGS, POOL)
 
 
+import importlib.util
+import traceback
+
+API_GET_ROUTES = {}
+API_POST_ROUTES = {}
+PLUGIN_CONTEXT = {
+    'DATA': DATA,
+    'ASSETS': ASSETS,
+    'JOBS': JOBS,
+    'FEATURES': FEATURES,
+    'WAVEFORMS': WAVEFORMS,
+    'API_GET': API_GET_ROUTES,
+    'API_POST': API_POST_ROUTES,
+    'LOCK': LOCK
+}
+
+for py_file in (DATA / 'plugins').glob('*.py'):
+    try:
+        spec = importlib.util.spec_from_file_location(py_file.stem, py_file)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        if hasattr(mod, 'setup'):
+            mod.setup(PLUGIN_CONTEXT)
+    except Exception as e:
+        print(f"Plugin {py_file.name} failed to load: {traceback.format_exc()}")
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
@@ -281,6 +308,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized_host():
             return self.send_json({'error':'アクセスできません。'},403)
         path=unquote(urlparse(self.path).path)
+        if path in API_GET_ROUTES:
+            return self.send_json(API_GET_ROUTES[path](self))
         if path.startswith('/api/waveform/'):
             asset=next((a for a in ASSETS if a['id']==path.rsplit('/',1)[-1]),None)
             return self.send_json(WAVEFORMS.get(asset) if asset else {'error':'素材がありません。'})
@@ -342,6 +371,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({'error':'アプリを再読み込みしてください。'},403)
         path=urlparse(self.path).path
         try:
+            if path in API_POST_ROUTES:
+                size = int(self.headers.get('Content-Length', '0'))
+                return self.send_json(API_POST_ROUTES[path](self, self.rfile.read(size) if size else b''))
             size=int(self.headers.get('Content-Length','0'))
             if path.startswith('/api/render/frame/'):
                 return self.send_json(FEATURES.frame(path, self.rfile, size))
@@ -366,6 +398,14 @@ class Handler(BaseHTTPRequestHandler):
                     ASSETS.append(asset); atomic_json(DATA/'assets.json',ASSETS)
                 jid=make_proxy(asset)
                 return self.send_json({'asset':asset,'job':jid})
+            if path=='/api/plugin/python':
+                if size>4*1024*1024: raise ValueError('データが大きすぎます。')
+                name = unquote(self.headers.get('X-Filename', 'plugin.py')).replace('\\', '/').split('/')[-1]
+                if not name.endswith('.py'): raise ValueError('拡張子が .py ではありません。')
+                code = self.rfile.read(size)
+                pid = uuid.uuid4().hex
+                (DATA / 'plugins' / f"{pid}.py").write_bytes(code)
+                return self.send_json({'id': pid, 'name': name, 'type': 'python'})
             if size>4*1024*1024: raise ValueError('データが大きすぎます。')
             body=json.loads(self.rfile.read(size))
             if path.startswith('/api/render/') or path.startswith('/api/projects/'):
