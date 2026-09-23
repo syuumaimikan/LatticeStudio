@@ -1,64 +1,94 @@
-# Lattice Studio 1.0.0 — Commercial-grade NLE Foundation
+# Lattice Studio — 日本語の空間動画エディター
 
-Lattice Studio is a GPU-first, Japanese-first, extensible non-linear editing (NLE) codebase designed for 4K/8K workflows, 3D spatial editing, isolated plugins, deterministic project files, and low-latency interaction.
+動画を3Dワークスペースに配置して編集する、ローカル実行の初期実用版です。Pythonの標準ライブラリ、ブラウザー、FFmpegで動作し、npmや大型UIフレームワークは不要です。既存のRustワークスペースは将来のネイティブ統合用として残しています。
 
-> **Important:** this repository is a production-oriented foundation and reference implementation. It is not a drop-in replacement for a mature commercial editor without platform-specific FFmpeg/GPU/plugin SDK integration, QA, codec licensing review, device certification, and sustained performance testing. The architecture is intentionally structured so those steps can be completed without rewriting the product core.
+## デスクトップ版（Windows）
 
-## Included
+`start-desktop.cmd` または `dist/LatticeStudio/LatticeStudio.exe` を起動してください。Pythonは実行ファイルに同梱しています。WindowsのWebView2 Runtimeと、PATH上のFFmpeg / FFprobeが必要です（このPCでは動作確認済み）。実行ファイルを移す場合は `dist/LatticeStudio` フォルダーごと移動します。
 
-- Rust workspace for the application/core/media/render/scene/plugin/i18n layers
-- Timeline + undo/redo transaction model
-- 3D scene graph and spatial clip model
-- Render-graph scheduler abstraction
-- Hardware-aware proxy decision engine
-- Stable C plugin ABI header
-- Plugin sandbox process protocol model
-- Japanese localization resources and Japanese-first UX rules
-- Sample `.lattice` JSON project and JSON Schema
-- Interactive zero-dependency browser UI preview
-- CI, release scripts, threat model, performance plan, plugin SDK docs
-- Sample native plugin source
+初回は既存の `.lattice-local/qa-session` の素材とプロジェクトを `%LOCALAPPDATA%/LatticeStudio/workspace` にコピーします。以後はデスクトップ専用データとして保存され、ブラウザー版とは同期しません。コピー元は変更しません。容量不足などの起動エラーは `%LOCALAPPDATA%/LatticeStudio-error.log` に記録します。
 
-## Product principles
+書き出し画面で「エンコーダー」を選びます。自動は実際にエンコードできたGPUを優先し、CPUも選択できます。NVIDIA NVENC、Intel Quick Sync、AMD AMFを検出し、使用不可のものは無効表示します。画質・速度は3段階、解像度は4K / フルHD（H.264、30fps）です。設定は次回も保持します。
 
-1. UI thread never decodes, renders, scans plugins, generates thumbnails, or exports.
-2. Source media is immutable; every edit is a reversible command.
-3. Decode → effects → composite stays GPU-resident whenever the backend supports it.
-4. Heavy/unsafe native plugins run out-of-process.
-5. 3D editing is optional: conventional timeline editing remains first-class.
-6. Japanese is not a translation layer; IME, vertical text, font fallback, subtitle segmentation and JIS shortcuts are first-class product requirements.
+WebAssembly高速転送はRust製モジュールでRGBAをRGBに整形し、PNG圧縮を省いてFFmpegに直接転送します。GPUが担当するのは映像圧縮で、Canvas合成・素材のシーク・音声処理は別です。素材やシェーダー次第で処理時間は変わり、4Kリアルタイム書き出しを保証するものではありません。WASMが使えない場合は従来のPNG転送を使用します。
 
-## Quick preview (no toolchain required)
+再ビルド: `python -m pip install -r requirements-desktop.txt` の後に `powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1`。Rustの `wasm32-unknown-unknown` ターゲットが必要です。WebView2ホストは [pywebview公式API](https://pywebview.flowrl.com/api/) を使用しています。
 
-Open `preview/index.html` in a modern browser.
+## ブラウザー版の起動
 
-## Native development
+1. Python 3.11以上と、`ffmpeg` / `ffprobe` をPATHに用意します。この環境では利用可能です。
+2. `start-studio.cmd` をダブルクリックします。
+3. 自動で開くブラウザーで編集します。URLは `http://127.0.0.1:8765` です。
 
-Install the Rust toolchain and platform dependencies, then:
+手動起動は `python studio_server.py --open`。起動したターミナルを閉じるとサーバーは終了します。ポートが使用中なら既存の画面を開くか、`--port 8766` を指定してください。`preview/index.html` の直接起動では動画処理は利用できません。
 
-```bash
-cargo check --workspace
+## 実装済み
+
+- 日本語UI・日本語ファイル名・ローカル動画／音声の読み込みとドラッグ＆ドロップ
+- 最大960px幅のH.264プロキシをバックグラウンド生成。元の素材は保持し、再生用に軽量版を選択可能
+- 初期6レイヤー・最大32レイヤー。上下ドラッグでレイヤー移動、上位レイヤーが前面。左右端のドラッグでトリム
+- X/Y位置、Z奥行き、回転、スケール、不透明度のキーフレーム。直線・なめらか・瞬間移動の補間と自動キー
+- 「レイヤー編集／キーフレーム」のタブ切り替え。キー行を編集タイムラインの下に積み重ねず、同じ領域を使って編集
+- 四角形・円・三角形・星・背景・日本語テキスト・カメラ制御・図形クリッピングを標準搭載
+- 文字・色・図形サイズ・文字サイズを入力中に即時プレビュー。日本語IMEの変換を維持
+- マウスで編集視点を回転できるCSS 3Dワークスペースと、書き出し構図の確認用画面
+- 元に戻す／やり直す（80操作）、自動保存、名前付き保存と一覧からの読み込み、JSON保存／読み込み。旧version 1も読み込み可能
+- GLSLシェーダーエディター、コンパイルエラー表示、サンプル、適用・解除。プロジェクト保存とMP4出力にも反映
+- 独自JSONエフェクトプラグインの読み込み・適用・解除。3種類の組み込みカラー効果
+- 元画質から4K UHD / フルHD、30fps、H.264＋AACのMP4書き出し。複数素材の合成と音声ミックス
+- バックグラウンド処理の実進捗表示。架空のGPU・FPS・メモリー数値は使用していません
+
+## 操作
+
+素材を読み込むと最初のクリップが配置されます。追加素材はライブラリでクリックします。タイムライン上で横にドラッグすると開始時刻が変わります。時間目盛りで再生位置を選び、`S`で分割します。インスペクターでトリムとトラック変更ができます。
+
+`Space`：再生／停止、`Delete`：削除、`Ctrl+Z`：戻す、`Ctrl+Shift+Z`：やり直し、`Ctrl+S`：名前を付けて保存、`Ctrl+O`：開く、左右矢印：1フレーム移動。日本語IME入力中は編集ショートカットを実行しません。
+
+3D空間のドラッグで編集視点を回し、Alt＋ドラッグで素材のX/Y位置を変更します。出力画面ではそのままドラッグで素材を移動できます。ホイール／＋−ボタンは編集視点の拡大縮小です。出力のズームはカメラ制御素材のスケールで設定します。Zが正なら手前、負なら奥になります。書き出しには編集用の斜め視点を含めず、カメラ制御を含む「出力画面」の構図を使用します。詳細は [拡張編集ガイド](docs/EXTENDED_EDITING_JA.md) を参照してください。
+
+## 保存とプラグイン
+
+素材、プロキシ、プロジェクト、MP4は `.lattice-local/` に保存します。素材は取り込み時にコピーするため、その分の空き容量が必要です。プロジェクトJSONだけを別のPCにコピーしても素材は移りません。作業全体のバックアップには `.lattice-local/` を含めてください。素材を外部のサービスへ送信しません。
+
+`plugins/soft-cinema.lattice-plugin.json` を画面の「プラグイン → 読み込む」で追加できます。仕様は [ローカルプラグイン仕様](docs/LOCAL_PLUGIN_JA.md) を参照してください。JSONの値だけを読み込み、任意のスクリプトは実行しません。
+
+## 現時点の制限
+
+これは商用NLEの全機能を備えた完成版ではありません。**OpenFX / VST3 / CLAP / ネイティブ / WASMプラグインの実行には未対応**です。既存のC ABIやRustコードは拡張用の基盤であり、このUIの稼働バックエンドではありません。
+
+- 4Kの軽快さは素材とPC次第です。プロキシ完成前の元画質再生、複数レイヤー、書き出し中は負荷が高くなります。長時間の4K60/HDR素材や各GPUでの性能認証は未実施です。
+- プロキシはCPU、書き出しは利用可能なNVENC・QSV・AMFまたはCPUを選択できます。ブラウザーのハードウェアデコードは環境依存です。
+- 出力はSDR・30fps固定。HDR管理、自動字幕、トランジション、3Dモデル、X/Y軸のクリップ回転、ネストは未実装です。
+- 3Dは平面動画を配置する編集空間です。出力はX/Y位置、Zによる投影サイズ、Z軸回転を反映する2D合成です。視点回転は編集補助です。
+- version 2のプレビューと書き出しは共通のCanvas/WebGLレンダラーを使用します。MP4の圧縮・色空間変換による色の差はあります。音声リミッターのプレビュー再現は未実装です。
+- 最大100クリップ、1素材64GB。大量の素材の管理、書き出しの一時停止／再開、複数タブ間の同時編集は未対応です。フレーム生成中の書き出し中止は可能です。
+- 動画・音声の対応形式はFFmpegとブラウザーに依存します。静止画・回転メタデータを含む一部スマートフォン動画には追加の検証が必要です。
+
+書き出し中はタブを開いたままにしてください。元画質素材のデコードにはブラウザーのコーデック対応も必要です。フレームをWASMでRGB変換（非対応時はPNG）して順次FFmpegに渡し、画像列をディスクや全量メモリーに保持しません。プレビューより時間がかかります。GPUエンコードは映像圧縮を高速化します。素材のシーク・合成は別処理です。
+
+## 検証
+
+```
+python -m unittest discover -s tests -v
+node --check preview/app.js
+node --test tests/editor-core.test.cjs
 cargo test --workspace
 ```
 
-The included source intentionally keeps FFmpeg/OpenFX/VST3/CLAP platform bindings behind integration boundaries. Connect those SDKs in `crates/lattice-media` and `crates/lattice-plugin-host` for production builds.
+Python統合テストは独立した一時フォルダーで実行します。実際の4Kテスト映像生成、日本語ファイル名の取り込み、プロキシ生成、HTTP Range、プロジェクト往復保存、プラグイン検証、4K MP4と時間差レイヤーの書き出しを確認します。短尺の機能検証であり、長尺の実時間性能を保証するものではありません。
 
-## Repository map
+ブラウザーの `renderer-tests.html` では、重なり・マスク・カメラ・日本語文字・キーフレーム・GLSLをピクセルで検証できます。テスト用ポート8766で開くと、6フレームのシェーダー付き4K MP4の書き出しも実行します（通常ポートでは描画だけ）。テスト用には `LATTICE_DATA` を別ディレクトリーに指定してください。
 
-- `apps/lattice-studio` — desktop app shell
-- `crates/lattice-core` — project, timeline, command history
-- `crates/lattice-media` — media metadata + proxy policy + decoder boundary
-- `crates/lattice-render` — render graph + backend abstraction
-- `crates/lattice-scene3d` — 3D scene graph
-- `crates/lattice-plugin-api` — stable plugin metadata/contracts
-- `crates/lattice-plugin-host` — sandbox/host policy
-- `crates/lattice-i18n` — localization infrastructure
-- `sdk/include` — C ABI for third-party plugins
-- `plugins/sample-fade` — sample plugin
-- `schemas` — project schemas
-- `preview` — interactive UI concept
-- `docs` — architecture, performance, security, SDK and release requirements
+この作業中に8766番で編集・読み込みした素材は `.lattice-local/qa-session` に保存されています。そのワークスペースを再度開く場合は `start-current-workspace.cmd` を使用します。通常の8765番とはデータを分けて保持しています。
 
-## License
+## ワークスペース・音声・シェーダーの追加機能
 
-The original code in this package is Apache-2.0. Third-party SDKs/codecs are not bundled; production distributors must review their own licensing obligations.
+- 右上の「設定」でダーク／ライト、日本語／英語を切り替え。設定はワークスペースに保存します。
+- 「新規」または「プロジェクト設定」で画面サイズと1〜128レイヤーを設定。後から変更でき、使用中のレイヤーを削減する操作は防ぎます。画面サイズ変更時、素材座標は保持します。
+- 上部タブは選択中の色を表示。プラグイン一覧を検索欄とカード一覧に整理しました。
+- 「シェーダー」からノードグラフを開きます。素材入力、色乗算、反転、白黒、露出、階調化、ミックス、出力の8種類。出力端子→入力端子で接続、ヘッダーで移動、入力端子の右クリックで解除。「適用」で選択素材へ保存します。GLSL直接編集も利用できます。
+- 「EQ」で選択した音声付き素材またはマスターを調整。120 Hz・1 kHz・8 kHzの3バンド、各±18 dB。再生中の変更、保存、MP4出力に反映。EQの時間軸キーフレームは未対応です。
+- 音声付き素材は解析後にタイムラインへ波形を表示します。長い素材では初回解析に時間がかかります。
+- 書き出しの「GPU負荷」で「最大品質」を選ぶとGPUの解析・圧縮を強化。NVENCではp7・フル解像度マルチパス等を使用します。GPU使用率100%の保証や処理全体のGPU移行ではありません。
+- 3D編集表示は360度回転できます。曲線編集での不要な文字選択とタイムラインのメニューが閉じない問題を修正しました。
+- 標準素材に楕円・ひし形・六角形・矢印・ハート・リング・直線・グリッド・市松模様・グラデーション・タイムコード・字幕を追加しました。

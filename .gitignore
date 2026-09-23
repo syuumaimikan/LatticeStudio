@@ -7,3 +7,8 @@
 cache/
 proxy/
 render-cache/
+/.lattice-local/
+__pycache__/
+
+/build/
+/dist/

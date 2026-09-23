@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "name": "シネマ・ソフト",
+  "description": "彩度を少し抑えた柔らかな映像表現",
+  "effects": { "brightness": 0.02, "contrast": 0.94, "saturation": 0.8 }
+}

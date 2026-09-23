@@ -14,9 +14,10 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, unquote
+from studio_audio import validate_eq, Waveforms
 
 ROOT = Path(__file__).resolve().parent
-DATA = ROOT / '.lattice-local'
+DATA = Path(os.environ.get('LATTICE_DATA', str(ROOT / '.lattice-local'))).resolve()
 for folder in ('media', 'proxy', 'exports', 'plugins', 'jobs'):
     (DATA / folder).mkdir(parents=True, exist_ok=True)
 TOKEN = secrets.token_urlsafe(32)
@@ -88,6 +89,7 @@ def ffmpeg(args, entry, duration):
                     entry['progress'] = min(.99, int(line.strip().split('=')[1]) / 1e6 / duration)
                 except ValueError:
                     pass
+        p.stdout.close()
         if p.wait():
             raise ValueError('変換に失敗しました。' + log.read_text(encoding='utf-8', errors='replace')[-1400:])
 
@@ -106,27 +108,90 @@ def make_proxy(asset):
 
 
 def number(obj, key, default, low, high):
-    n = float(obj.get(key, default))
+    value = obj.get(key, default)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f'{key} は数値で指定してください。')
+    n = float(value)
     if not math.isfinite(n) or not low <= n <= high:
         raise ValueError(f'{key} の値が範囲外です。')
     return n
 
 
+PARAM_BOUNDS = {'x':(-7680,7680),'y':(-4320,4320),'z':(-1500,1500),
+                'scale':(1,800),'rotation':(-3600,3600),'opacity':(0,100)}
+
+
 def validate_project(p):
-    if not isinstance(p, dict) or p.get('version') != 1 or not isinstance(p.get('clips'), list) or len(p['clips']) > 100:
+    if not isinstance(p, dict) or p.get('version') not in (1,2) or not isinstance(p.get('clips'), list) or len(p['clips']) > 100:
         raise ValueError('対応していないプロジェクト形式です（最大100クリップ）。')
+    if not isinstance(p.get('name'), str) or len(p['name']) > 200:
+        raise ValueError('プロジェクト名は200文字以内で指定してください。')
+    tracks = number(p, 'trackCount', 6 if p['version']==2 else 4, 1, 128)
+    if tracks != int(tracks): raise ValueError('レイヤー数が不正です。')
+    from studio_output import output_size
+    output_size({'quality':'custom','width':p.get('width',3840),'height':p.get('height',2160)})
+    validate_eq(p.get('masterEq',{}))
     known = {a['id']: a for a in ASSETS}
+    ids = set()
     for c in p['clips']:
-        if c.get('asset') not in known:
-            raise ValueError('素材が見つかりません。元のPCで開くか、素材を再読み込みしてください。')
-        start = number(c, 'start', 0, 0, 86400)
+        required = {'id','asset','start','duration','sourceIn','track','x','y','z','scale','rotation','opacity','volume','effects'}
+        if not isinstance(c, dict) or not required.issubset(c) or not isinstance(c['id'], str) or not c['id'] or c['id'] in ids:
+            raise ValueError('クリップのデータが不正です。')
+        ids.add(c['id'])
+        kind = c.get('kind','media')
+        if kind not in ('media','shape','text','camera','mask'):
+            raise ValueError('素材の種類が不正です。')
+        if kind=='media' and c.get('asset') not in known:
+            raise ValueError('素材が見つかりません。素材フォルダーを含めて元のPCから移してください。')
+        number(c, 'start', 0, 0, 86400)
         length = number(c, 'duration', 1, 1 / 60, 86400)
         source = number(c, 'sourceIn', 0, 0, 86400)
-        if source + length > known[c['asset']]['duration'] + .05:
+        if kind=='media' and source + length > known[c['asset']]['duration'] + .05:
             raise ValueError('クリップが元の素材の長さを超えています。')
-        for key, default, lo, hi in [('x',0,-1920,1920), ('y',0,-1080,1080), ('z',0,-1500,1500), ('scale',100,5,200), ('rotation',0,-180,180), ('opacity',100,0,100), ('volume',100,0,200), ('track',0,0,3)]:
-            number(c,key,default,lo,hi)
+        for key, bounds in PARAM_BOUNDS.items():
+            number(c,key,100 if key in ('scale','opacity') else 0,*bounds)
+        number(c,'volume',100,0,100)
+        number(c,'track',0,0,tracks-1)
+        if c['track'] != int(c['track']): raise ValueError('レイヤー番号が不正です。')
         validate_effects(c.get('effects', {}))
+        validate_eq(c.get('eq',{}))
+        keys=c.get('keys',{})
+        if not isinstance(keys,dict) or set(keys)-set(PARAM_BOUNDS): raise ValueError('キーフレームのパラメーターが不正です。')
+        for prop,points in keys.items():
+            if not isinstance(points,list) or len(points)>1000: raise ValueError('キーフレームは1項目1000点までです。')
+            previous=-float('inf')
+            for point in points:
+                if not isinstance(point,dict): raise ValueError('キーフレームが不正です。')
+                t=number(point,'time',0,-86400,86400)
+                number(point,'value',0,*PARAM_BOUNDS[prop])
+                if t<=previous or point.get('easing','linear') not in ('linear','smooth','hold','bezier'):
+                    raise ValueError('キーフレームの時刻または補間が不正です。')
+                if 'curve' in point:
+                    curve=point['curve']
+                    if (not isinstance(curve,list) or len(curve)!=4 or
+                        any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or not 0<=v<=1 for v in curve)):
+                        raise ValueError('曲線の制御点は0〜1の数値4つで指定してください。')
+                previous=t
+        if kind in ('shape','text','mask'):
+            import re
+            if not isinstance(c.get('color'),str) or not re.fullmatch(r'#[0-9a-fA-F]{6}',c['color']): raise ValueError('色が不正です。')
+            number(c,'width',1200,1,3840);number(c,'height',700,1,2160)
+            if c.get('shape','rectangle') not in ('rectangle','circle','triangle','star','ellipse','diamond','hexagon','arrow','heart','ring','line','grid','checker','gradient'): raise ValueError('図形が不正です。')
+        if kind=='text':
+            if not isinstance(c.get('text'),str) or len(c['text'])>5000: raise ValueError('テキストは5000文字以内です。')
+            number(c,'fontSize',180,8,800)
+            if c.get('align','center') not in ('left','center','right'): raise ValueError('文字揃えが不正です。')
+        shader=c.get('shader')
+        if shader is not None:
+            if not isinstance(shader,dict) or not isinstance(shader.get('code'),str) or len(shader['code'])>32000 or not isinstance(shader.get('enabled'),bool):
+                raise ValueError('シェーダーの形式が不正です（最大32000文字）。')
+            if kind in ('camera','mask'): raise ValueError('カメラ・クリッピング素材にシェーダーは適用できません。')
+        number(c,'shaderOffset',0,-86400,86400)
+    for c in p['clips']:
+        if c.get('kind')=='mask' and c.get('maskTarget'):
+            target=next((v for v in p['clips'] if v['id']==c['maskTarget']),None)
+            if target is None or target.get('kind') in ('camera','mask') or target['track']>=c['track']:
+                raise ValueError('クリッピングの対象は下位レイヤーの映像・図形・テキストにしてください。')
     return p
 
 
@@ -141,9 +206,11 @@ def export_project(project, quality):
     validate_project(project)
     if not project['clips']:
         raise ValueError('タイムラインに素材を追加してください。')
+    if project['version']==2:
+        raise ValueError('このプロジェクトは画面の共通レンダラーから書き出してください。')
     w,h = (3840,2160) if quality == '4k' else (1920,1080)
     fps = 30
-    clips = sorted(project['clips'], key=lambda c: (c.get('track',0), c.get('z',0), c['start']))
+    clips = sorted(project['clips'], key=lambda c: (c.get('track',0), c['start']))
     duration = max(c['start'] + c['duration'] for c in clips)
     assets = {a['id']: a for a in ASSETS}
     def work(entry):
@@ -189,6 +256,11 @@ def export_project(project, quality):
     return job('MP4 書き出し · '+quality,work)
 
 
+from studio_features import StudioFeatures
+FEATURES = StudioFeatures(DATA, ASSETS, JOBS, POOL, LOCK, FFMPEG, FLAGS, validate_project, atomic_json, ffmpeg, job)
+WAVEFORMS = Waveforms(DATA, FFMPEG, FLAGS, POOL)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
@@ -209,6 +281,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized_host():
             return self.send_json({'error':'アクセスできません。'},403)
         path=unquote(urlparse(self.path).path)
+        if path.startswith('/api/waveform/'):
+            asset=next((a for a in ASSETS if a['id']==path.rsplit('/',1)[-1]),None)
+            return self.send_json(WAVEFORMS.get(asset) if asset else {'error':'素材がありません。'})
+        if path=='/api/preferences':
+            return self.send_json(read_json(DATA/'preferences.json',{'theme':'dark','language':'ja'}))
+        if path=='/api/export-settings':
+            return self.send_json(read_json(DATA/'export-settings.json',{}))
+        if path=='/api/encoders':
+            from studio_encoding import capabilities
+            return self.send_json(capabilities(FFMPEG))
+        if path=='/api/projects':
+            return self.send_json(FEATURES.list_projects())
         if path=='/api/state':
             with LOCK:
                 return self.send_json({'token':TOKEN,'assets':ASSETS,'jobs':list(JOBS.values()),'plugins':BUILTINS+[read_json(p,{}) for p in (DATA/'plugins').glob('*.json')], 'project':read_json(DATA/'project.json',None), 'ffmpeg':bool(FFMPEG and FFPROBE)})
@@ -259,6 +343,8 @@ class Handler(BaseHTTPRequestHandler):
         path=urlparse(self.path).path
         try:
             size=int(self.headers.get('Content-Length','0'))
+            if path.startswith('/api/render/frame/'):
+                return self.send_json(FEATURES.frame(path, self.rfile, size))
             if path=='/api/import':
                 if size<=0 or size>64*1024**3: raise ValueError('素材サイズは64GB以下にしてください。')
                 name=unquote(self.headers.get('X-Filename','素材.mp4')).replace('\\','/').split('/')[-1]
@@ -282,6 +368,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({'asset':asset,'job':jid})
             if size>4*1024*1024: raise ValueError('データが大きすぎます。')
             body=json.loads(self.rfile.read(size))
+            if path.startswith('/api/render/') or path.startswith('/api/projects/'):
+                return self.send_json(FEATURES.post(path,body))
+            if path=='/api/preferences':
+                if body.get('theme') not in ('dark','light') or body.get('language') not in ('ja','en'):
+                    raise ValueError('表示設定が不正です。')
+                with LOCK: atomic_json(DATA/'preferences.json',body)
+                return self.send_json({'ok':True})
+            if path=='/api/export-settings':
+                if (body.get('encoder') not in ('auto','libx264','h264_nvenc','h264_qsv','h264_amf')
+                    or body.get('encodingQuality') not in ('fast','balanced','quality')
+                    or body.get('quality') not in ('4k','1080p','720p','portrait','square','custom')
+                    or not isinstance(body.get('acceleration'),bool)):
+                    raise ValueError('書き出し設定が不正です。')
+                from studio_output import output_size
+                output_size(body)
+                if body.get('gpuMode','normal') not in ('normal','maximum'): raise ValueError('GPU設定が不正です。')
+                with LOCK: atomic_json(DATA/'export-settings.json',body)
+                return self.send_json({'ok':True})
             if path=='/api/project':
                 validate_project(body)
                 with LOCK: atomic_json(DATA/'project.json',body)
@@ -305,7 +409,11 @@ if __name__=='__main__':
     import argparse
     parser=argparse.ArgumentParser()
     parser.add_argument('--port',type=int,default=8765)
+    parser.add_argument('--open', action='store_true', help='ブラウザーを開く')
     args=parser.parse_args()
     server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
     print(f'Lattice Studio: http://127.0.0.1:{server.server_port}',flush=True)
+    if args.open:
+        import webbrowser
+        webbrowser.open(f'http://127.0.0.1:{server.server_port}')
     server.serve_forever()
